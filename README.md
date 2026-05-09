@@ -1,16 +1,30 @@
-# React + Vite
+# Aero — Apple-style drone landing with scroll-tied canvas video
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> Apple-flagship-style drone landing page. Every video frame is pre-decoded to an `ImageBitmap` during the loader; scrolling plays the cached frames on a canvas — no `currentTime` scrubbing, ever.
 
-Currently, two official plugins are available:
+**[Live demo →](https://aero-hnpd.onrender.com)**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+![preview](public/aero.mp4)
 
-## React Compiler
+## What it does
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+A landing page where the hero drone disassembles as the user scrolls through a sticky 4-viewport-tall section, with fade-in spec cards for propulsion, imaging, intelligence, and airframe. Frame playback is canvas-based to dodge the lag of seeking a `<video>` element on production hardware.
 
-## Expanding the ESLint configuration
+## Tech
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+React 18 · Vite · Tailwind CSS v3 · Canvas 2D · `requestVideoFrameCallback`
+
+## Highlights
+
+- **Frame extractor** (`src/lib/frameExtractor.js`) downloads the source video as a blob, plays it muted at 4× into a hidden `<video>`, and grabs each decoded frame via `requestVideoFrameCallback` as an `ImageBitmap`
+- Scroll handler is rAF-throttled and writes directly to refs / styles — **zero React re-renders during scroll**
+- DPR-aware canvas sizing (capped at 2) for crisp output without wasted pixel work on retina mobile
+- Cards use opaque dark fills instead of `backdrop-filter` so the compositor isn't repainting blurred surfaces during scroll
+- Specs cards fade-in / slide-in across staggered scroll ranges so the disassembly reads as a guided tour
+
+## Run locally
+
+```bash
+npm install
+npm run dev    # http://localhost:5198
+```
