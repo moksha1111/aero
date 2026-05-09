@@ -4,7 +4,7 @@
 
 **[Live demo →](https://aero-hnpd.onrender.com)**
 
-![preview](public/aero.mp4)
+![preview](docs/preview.png)
 
 ## What it does
 
