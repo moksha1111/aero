@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { drawFrameCover } from '../lib/frameExtractor';
 
-// Each card spans a slice of the section's [0..1] scroll range. They fade in,
-// hold, then fade out — staggered so the user sees them appear/disappear in
-// sequence as the drone disassembles.
 const CARDS = [
   {
     eyebrow: 'Propulsion',
@@ -49,8 +46,6 @@ function smoothstep(edge0, edge1, x) {
 }
 
 function cardOpacity(progress, [a, b]) {
-  // Triangle window with smooth edges: ramp up over first 30% of range,
-  // hold, ramp down over last 30%.
   const span = b - a;
   const inEnd = a + span * 0.3;
   const outStart = b - span * 0.3;
@@ -61,7 +56,6 @@ function cardOpacity(progress, [a, b]) {
 }
 
 function cardTranslate(progress, [a, b], side) {
-  // Translate from 24px outward → 0 as it fades in.
   const span = b - a;
   const inEnd = a + span * 0.3;
   const t = smoothstep(a, inEnd, progress);
@@ -75,23 +69,16 @@ export default function StickyExplode({ frames }) {
   const framesRef = useRef(frames);
   const lastDrawnFrameRef = useRef(-1);
   const rafRef = useRef(0);
-  const [progress, setProgress] = useState(0);
+  const cardRefs = useRef([]);
+  const progressBarRef = useRef(null);
 
-  // Keep the latest `frames` in a ref so paint() doesn't depend on closure
-  // identity. Lets us define paint/schedulePaint outside of render and keep
-  // listeners stable.
   framesRef.current = frames;
 
-  // Sole authority on canvas backing-store size + DPR transform. We never
-  // set width/height attributes from JSX — doing so would wipe the context
-  // (including this transform) every time the parent re-rendered.
   const sizeCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // Match the screen's pixel density (cap at 3 for absurd displays). The
-    // source video is only ~1300 px wide, so going above DPR 2 won't add real
-    // detail, but it will let the browser pick a higher-quality scaler.
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    // Cap at 2; source video is ~1300px wide so >2 is wasted pixel work.
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const rect = canvas.getBoundingClientRect();
     const w = Math.max(1, Math.round(rect.width * dpr));
     const h = Math.max(1, Math.round(rect.height * dpr));
@@ -129,19 +116,37 @@ export default function StickyExplode({ frames }) {
 
     const rect = section.getBoundingClientRect();
     const vh = window.innerHeight;
-    // Section scrolled progress: 0 when its top hits viewport top,
-    // 1 when its bottom hits viewport bottom.
     const scrollable = rect.height - vh;
     const scrolled = Math.max(0, Math.min(scrollable, -rect.top));
     const p = scrollable > 0 ? scrolled / scrollable : 0;
-    setProgress(p);
+
+    // Cards: drive style directly via refs — no React re-render.
+    for (let i = 0; i < CARDS.length; i++) {
+      const el = cardRefs.current[i];
+      if (!el) continue;
+      const card = CARDS[i];
+      const o = cardOpacity(p, card.range);
+      if (o <= 0.001) {
+        if (el.style.visibility !== 'hidden') {
+          el.style.visibility = 'hidden';
+          el.style.opacity = '0';
+        }
+        continue;
+      }
+      if (el.style.visibility === 'hidden') el.style.visibility = '';
+      const tx = cardTranslate(p, card.range, card.side);
+      el.style.opacity = o.toFixed(3);
+      el.style.transform = `translateY(-50%) translateX(${tx.toFixed(2)}px)`;
+    }
+
+    if (progressBarRef.current) {
+      progressBarRef.current.style.width = `${(p * 100).toFixed(2)}%`;
+    }
 
     const ctx = canvas.getContext('2d', { alpha: false });
     const cssW = canvas.clientWidth;
     const cssH = canvas.clientHeight;
 
-    // No frames yet → just paint the dark backdrop so the section reads
-    // as intentional rather than broken.
     if (!fs || fs.length === 0) {
       ctx.fillStyle = '#0a0a0c';
       ctx.fillRect(0, 0, cssW, cssH);
@@ -157,8 +162,6 @@ export default function StickyExplode({ frames }) {
     lastDrawnFrameRef.current = frameIdx;
   };
 
-  // Scroll + resize listeners. These bind once; paint() reads the latest
-  // frames via framesRef so we don't need to rebind when frames arrive.
   useEffect(() => {
     const onScroll = () => schedulePaint();
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -172,7 +175,6 @@ export default function StickyExplode({ frames }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Repaint whenever the frames array changes (initial load, hot reload).
   useEffect(() => {
     lastDrawnFrameRef.current = -1;
     schedulePaint();
@@ -184,8 +186,6 @@ export default function StickyExplode({ frames }) {
       ref={sectionRef}
       id="flight"
       className="relative w-full"
-      // Scroll length controls how long the explode sequence takes. ~400vh
-      // means the user scrolls four viewports to traverse the full video.
       style={{ height: '420vh' }}
       aria-label="Drone disassembly scroll sequence"
     >
@@ -195,7 +195,6 @@ export default function StickyExplode({ frames }) {
           className="absolute inset-0 w-full h-full"
         />
 
-        {/* Vignette + grain over the canvas for a cinematic feel */}
         <div
           aria-hidden
           className="absolute inset-0 pointer-events-none"
@@ -206,58 +205,54 @@ export default function StickyExplode({ frames }) {
         />
         <div aria-hidden className="absolute inset-0 grain pointer-events-none" />
 
-        {/* Section eyebrow */}
         <div className="absolute top-20 left-0 right-0 flex justify-center pointer-events-none">
           <p className="text-[11px] uppercase tracking-[0.4em] text-chrome/55">
             Anatomy of flight
           </p>
         </div>
 
-
-        {/* Progress rail */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-40 h-px bg-white/10 overflow-hidden">
           <div
+            ref={progressBarRef}
             className="h-full bg-accent"
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            style={{ width: '0%' }}
           />
         </div>
 
-        {/* Card overlays */}
-        {CARDS.map((card) => {
-          const o = cardOpacity(progress, card.range);
-          const tx = cardTranslate(progress, card.range, card.side);
-          if (o <= 0.001) return null;
-          return (
-            <article
-              key={card.title}
-              className={`absolute top-1/2 -translate-y-1/2 max-w-sm px-7 py-7 rounded-2xl
-                          border border-white/[0.08] bg-ink/55 backdrop-blur-xl
-                          shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7)]
-                          ${card.side === 'left' ? 'left-6 md:left-14' : 'right-6 md:right-14'}`}
-              style={{
-                opacity: o,
-                transform: `translateY(-50%) translateX(${tx}px)`,
-                transition: 'transform 200ms ease-out',
-              }}
-            >
-              <p className="text-[10px] uppercase tracking-[0.35em] text-accent/90 mb-3">
-                {card.eyebrow}
-              </p>
-              <h3 className="font-display text-2xl md:text-[1.7rem] leading-tight tracking-tight mb-3 text-chrome">
-                {card.title}
-              </h3>
-              <p className="text-sm leading-relaxed text-chrome/65 mb-5">{card.body}</p>
-              <div className="flex items-baseline gap-3 pt-4 border-t border-white/[0.06]">
-                <span className="font-mono text-2xl text-chrome tracking-tight">
-                  {card.metric}
-                </span>
-                <span className="text-[11px] uppercase tracking-[0.25em] text-chrome/45">
-                  {card.metricLabel}
-                </span>
-              </div>
-            </article>
-          );
-        })}
+        {CARDS.map((card, i) => (
+          <article
+            key={card.title}
+            ref={(el) => {
+              cardRefs.current[i] = el;
+            }}
+            className={`absolute top-1/2 max-w-sm px-7 py-7 rounded-2xl
+                        border border-white/[0.08] bg-ink/85
+                        shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7)]
+                        ${card.side === 'left' ? 'left-6 md:left-14' : 'right-6 md:right-14'}`}
+            style={{
+              opacity: 0,
+              visibility: 'hidden',
+              transform: 'translateY(-50%)',
+              willChange: 'opacity, transform',
+            }}
+          >
+            <p className="text-[10px] uppercase tracking-[0.35em] text-accent/90 mb-3">
+              {card.eyebrow}
+            </p>
+            <h3 className="font-display text-2xl md:text-[1.7rem] leading-tight tracking-tight mb-3 text-chrome">
+              {card.title}
+            </h3>
+            <p className="text-sm leading-relaxed text-chrome/65 mb-5">{card.body}</p>
+            <div className="flex items-baseline gap-3 pt-4 border-t border-white/[0.06]">
+              <span className="font-mono text-2xl text-chrome tracking-tight">
+                {card.metric}
+              </span>
+              <span className="text-[11px] uppercase tracking-[0.25em] text-chrome/45">
+                {card.metricLabel}
+              </span>
+            </div>
+          </article>
+        ))}
       </div>
     </section>
   );
